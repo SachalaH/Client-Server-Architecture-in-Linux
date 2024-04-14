@@ -10,6 +10,9 @@
 #include <arpa/inet.h>
 #include <signal.h>
 #include <sys/wait.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <time.h>
 
 #define PORT 8000
 #define BACKLOG 20
@@ -29,6 +32,8 @@ void crequest(int client_fd);
 void sigchild_handler(int signo);
 void handle_incoming_strings(char *args[], int client_fd, int *num_args);
 void list_dirs_newfirst(int client_fd);
+void list_dirs_alphabetically(int client_fd);
+void search_file_info(char *filename, char *path, int *found, char *details);
 
 int main()
 {
@@ -118,6 +123,9 @@ void crequest(int client_fd){
     int num_args;
     // char buffer[10241];
     while(1){
+        fflush(stdout);
+
+        memset(args,0,sizeof(args));
         
         handle_incoming_strings(args, client_fd, &num_args);
         
@@ -125,13 +133,39 @@ void crequest(int client_fd){
         
         if(strcmp(args[0],"dirlist")==0){
             if(strcmp(args[1],"-a")==0){
-                //list_dirs_alphabetically(client_fd);
+                printf("Command received: dirlist -a\n");
+                list_dirs_alphabetically(client_fd);
             }else{
+                printf("Command received: dirlist -t\n");
                 list_dirs_newfirst(client_fd);
             }
 
         }
         else if(strcmp(args[0],"w24fn")==0){
+            printf("Command received: w24fn\n");
+            char *filename = args[1];
+            char *root = getenv("HOME");
+            int found = 0;
+            char details[PIPE_BUFFER];
+            search_file_info(filename, root, &found, details);
+            // If the file was not found, print an error message
+            if (!found)
+            {
+                char *msg = "File not found.\n";
+                int bytes_sent = send(client_fd, msg, strlen(msg), 0);
+                if (bytes_sent == -1){
+                    perror("send");
+                    exit(EXIT_FAILURE);
+                }
+            }
+            else
+            {
+                int bytes_sent = send(client_fd, details, strlen(details), 0);
+                if (bytes_sent == -1){
+                    perror("send");
+                    exit(EXIT_FAILURE);
+                }
+            }
 
         }
         else if(strcmp(args[0],"w24fz")==0){
@@ -150,10 +184,7 @@ void crequest(int client_fd){
             printf("Connection closed\n");
             break;
         }
-        else{
-
-        }
-
+        
     }
 
     close(client_fd);
@@ -196,7 +227,7 @@ void list_dirs_newfirst(int client_fd){
     char *ls_arguments[] = {"sh", "-c", "ls -1dt ~/\*/", NULL};
 
     char buffer[PIPE_BUFFER] = {0};
-    int cp_op = dup(STDOUT_FILENO);
+    
     int pipe_fd[2];
     if (pipe(pipe_fd) == -1) {
         perror("pipe");
@@ -212,7 +243,6 @@ void list_dirs_newfirst(int client_fd){
     else if (pid == 0) { 
         // Child process
         close(pipe_fd[0]); // Close the read end of the pipe
-        // int cp_out = dup(STDOUT_FILENO);
         if (dup2(pipe_fd[1], STDOUT_FILENO) == -1) {
             perror("dup2");
             exit(EXIT_FAILURE);
@@ -234,9 +264,112 @@ void list_dirs_newfirst(int client_fd){
             }
         }
         close(pipe_fd[0]); // Close the read end of the pipe
-        dup2(cp_op, STDOUT_FILENO);
         memset(buffer, 0, sizeof(buffer)); // Clear buffer
     }
 
 
+}
+
+void list_dirs_alphabetically(int client_fd){
+
+    char *ls_command = "sh";
+    char *ls_arguments[] = {"sh", "-c", "ls -1d ~/\*/ | sort", NULL};
+
+    char buffer[PIPE_BUFFER] = {0};
+    
+    int pipe_fd[2];
+    if (pipe(pipe_fd) == -1) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+    
+    pid_t pid = fork();
+    
+    if (pid == -1) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    } 
+    else if (pid == 0) { 
+        // Child process
+        close(pipe_fd[0]); // Close the read end of the pipe
+        if (dup2(pipe_fd[1], STDOUT_FILENO) == -1) {
+            perror("dup2");
+            exit(EXIT_FAILURE);
+        }
+        close(pipe_fd[1]); // Close the original write end of the pipe
+
+        // Execute ls command
+        if (execvp(ls_command, ls_arguments) == -1) {
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        }
+    } else { // Parent process
+        close(pipe_fd[1]); // Close the write end of the pipe
+        ssize_t bytes_read;
+        while ((bytes_read = read(pipe_fd[0], buffer, PIPE_BUFFER)) > 0) {
+            if (send(client_fd, buffer, bytes_read, 0) != bytes_read) {
+                perror("send");
+                exit(EXIT_FAILURE);
+            }
+        }
+        close(pipe_fd[0]); // Close the read end of the pipe
+        memset(buffer, 0, sizeof(buffer)); // Clear buffer
+    }
+
+}
+
+void search_file_info(char *filename, char *path, int *found, char *details){
+
+    DIR *dir;
+    struct dirent *dp;
+    struct stat st;
+    char buf[MAXSIZE];
+
+    // Open the directory at the specified path
+    dir = opendir(path);
+    if (dir == NULL){
+        perror("opendir");
+        return;
+    }
+
+    // Traverse the directory
+    while ((dp = readdir(dir)) != NULL){
+        // Check if the current directory entry is a hidden directory
+
+        if (dp->d_name[0] == '.'){
+
+            continue; // Skip hidden directories
+
+        }
+        // Check if the current directory entry is the target file
+        if (strcmp(dp->d_name, filename) == 0){
+            // Construct the full path to the file
+            sprintf(buf, "%s/%s", path, filename);
+            // Get the file stats
+            if (stat(buf, &st) == 0){
+                // Format file information into the result string
+                snprintf(details, PIPE_BUFFER, "File Path:%s\nFilename:%s\nFile Size:%ld\nPermissions: %o\nCreate At:%s", path, filename, st.st_size, st.st_mode & (S_IRWXU | S_IRWXG | S_IRWXO), ctime(&st.st_mtime));
+                // Set the found flag
+                *found = 1;
+                // Break out of the loop
+                break;
+            }
+        }
+        // Recursively search subdirectories
+        if (dp->d_type == DT_DIR && strcmp(dp->d_name, ".") != 0 && strcmp(dp->d_name, "..") != 0)
+        {
+            // Construct the full path to the subdirectory
+            sprintf(buf, "%s/%s", path, dp->d_name);
+            // Recursively search the subdirectory
+            search_file_info(filename, buf, found, details);
+            // If the file is found, break out of the loop
+            if (*found)
+            {
+                break;
+            }
+        }
+    }
+
+    // Close the directory
+    closedir(dir);
 }

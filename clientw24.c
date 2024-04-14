@@ -111,9 +111,9 @@ int main(int argc, char *argv[])
     }
 
     //buffer = "Hello World!! Lets have fun\n";
-    //memset(buffer, 0 , sizeof(buffer));
     while(1) {
         fflush(stdout);
+        memset(buffer, 0 , sizeof(buffer));
         // prompting client to enter the command
         write(STDOUT_FILENO, "Enter a command: ",17);
         
@@ -168,19 +168,40 @@ int main(int argc, char *argv[])
 
 
         
+        // // Receive data from server
+        // char *res[PIPE_BUFFER] = {0};
+        // ssize_t bytes_received;
+        // while ((bytes_received = recv(socket_fd, res, PIPE_BUFFER, 0)) > 0) {
+        //     // Print received data
+        //     printf("%s", res);
+        // }
+        // if (bytes_received < 0) {
+        //     perror("recv failed");
+        //     exit(EXIT_FAILURE);
+        // }
+
+        // memset(res, 0, sizeof(res)); // Clear buffer
         // Receive data from server
-        char *res[PIPE_BUFFER] = {0};
+        // Receive data from server
+        char buffer[PIPE_BUFFER];
         ssize_t bytes_received;
-        while ((bytes_received = recv(socket_fd, res, PIPE_BUFFER, 0)) > 0) {
-            // Print received data
-            printf("%s", res);
-        }
-        if (bytes_received < 0) {
+
+        bytes_received = recv(socket_fd, buffer, PIPE_BUFFER - 1, 0);
+        if (bytes_received == 0) {
+            // Server closed the connection
+            printf("Server closed the connection\n");
+            break; // Exit the loop
+        } else if (bytes_received < 0) {
+            // Error receiving data
             perror("recv failed");
             exit(EXIT_FAILURE);
+        } else {
+            // Null-terminate the received data to treat it as a string
+            buffer[bytes_received] = '\0';
+            // Print received data
+            printf("%s", buffer);
         }
 
-        memset(res, 0, sizeof(res)); // Clear buffer
 
 
         
