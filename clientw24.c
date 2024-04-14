@@ -12,7 +12,10 @@
 #define PORT 8000
 #define MAXSIZE 1024
 #define ARG_SIZE 5
+#define MAXLEN 128
+#define PIPE_BUFFER 4096
 
+// TODO Handle quitc on the client side
 int parse_ip(char *client_ip, char **args){
     // this function will parse the client ip
     // with respect to a space and return the count of the arguments
@@ -33,7 +36,7 @@ int parse_ip(char *client_ip, char **args){
 }
 
 int validate_args(char **args, int arg_count){
-    if((strcmp(args[0],"dirlist")==0 && arg_count==2)&&(strcmp(args[1],"-t") || strcmp(args[1],"-a"))){
+    if((strcmp(args[0],"dirlist")==0 && arg_count==2)&&(strcmp(args[1],"-t")==0 || strcmp(args[1],"-a")==0)){
         return 1;
     }
     else if(strcmp(args[0],"w24fn")==0 && arg_count==2){
@@ -122,31 +125,62 @@ int main(int argc, char *argv[])
         }else if (read_bytes == 1){
             // if user just presses an enter
             continue;
-        }else{
+        }
 
-            // the last character will be \n we should null terminate it
-            buffer[read_bytes-1] = '\0';
-            // parse the input that we get
-            // creating the command array
-            char *args[ARG_SIZE];
-            int arg_count = parse_ip(buffer, args);
-            // validate the input
-            int validate_res = validate_args(args, arg_count);
+        // the last character will be \n we should null terminate it
+        buffer[read_bytes-1] = '\0';
+        // parse the input that we get
+        // creating the command array
+        char *args[ARG_SIZE];
+        int arg_count = parse_ip(buffer, args);
+        // validate the input
+        int validate_res = validate_args(args, arg_count);
 
-            // if validation is done correctly we shall send it to the server
-            if(validate_res){
-                // send the command args to the server
-                // call function to send the parsed input to server
-                send_parsed_input(socket_fd, args, arg_count);
-                
+        // if validation is done correctly we shall send it to the server
+        if(validate_res){
+            // send the command args to the server
+            // call function to send the parsed input to server
+            // send_parsed_input(socket_fd, args, arg_count);
 
-            }else{
-                // dont send instead prompt client with proper sytanx of the commands
-
+            // Send the number of arguments to the server
+            if (send(socket_fd, &arg_count, sizeof(int), 0) < 0) {
+                perror("send failed");
+                return -1;
             }
+
+
+            // Send each argument to the server
+            for (int i = 0; i < arg_count; i++) {
+                if (send(socket_fd, args[i], MAXLEN * sizeof(char), 0) < 0) {
+                    perror("send failed");
+                    return -1;
+                }
+            }
+
+
             
 
+        }else{
+            // dont send instead prompt client with proper sytanx of the commands
+
         }
+
+
+
+        
+        // Receive data from server
+        char *res[PIPE_BUFFER] = {0};
+        ssize_t bytes_received;
+        while ((bytes_received = recv(socket_fd, res, PIPE_BUFFER, 0)) > 0) {
+            // Print received data
+            printf("%s", res);
+        }
+        if (bytes_received < 0) {
+            perror("recv failed");
+            exit(EXIT_FAILURE);
+        }
+
+        memset(res, 0, sizeof(res)); // Clear buffer
 
 
         
@@ -154,5 +188,5 @@ int main(int argc, char *argv[])
     }   
 
     close(socket_fd);   
-
+    return 0;
 }

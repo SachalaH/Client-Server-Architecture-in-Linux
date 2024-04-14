@@ -15,15 +15,20 @@
 #define BACKLOG 20
 #define ARG_SIZE 5
 #define BUFFER_SIZE 32
+#define MAXSIZE 128
+#define PIPE_BUFFER 4096
 
 
-// TODO: Register a handler for sigchild to prevent zombie process
-// TODO: handle the incoming parsed vector
-// TODO: Call appropriate function to handle the command
+
+
+
+// TODO Cleanup the array
+// TODO look into code of dirlist -t
 
 void crequest(int client_fd);
 void sigchild_handler(int signo);
-void handle_incoming_strings(char **args, int client_fd);
+void handle_incoming_strings(char *args[], int client_fd, int *num_args);
+void list_dirs_newfirst(int client_fd);
 
 int main()
 {
@@ -68,8 +73,8 @@ int main()
 
     printf("Server listening on port: %d\n", PORT);
 
+    size = sizeof(struct sockaddr_in);  
     while(1) {
-        size = sizeof(struct sockaddr_in);  
 
         if ((client_fd = accept(socket_fd, (struct sockaddr *)&dest, &size))==-1) {
             //fprintf(stderr,"Accept Failure\n");
@@ -77,9 +82,26 @@ int main()
             exit(1);
         }
         printf("Server got connection from client %s\n", inet_ntoa(dest.sin_addr));
-        //buffer = "Hello World!! I am networking!!\n";
 
-        crequest(client_fd);
+        // Fork a child process to handle client request
+        int pid = fork();
+        if (pid < 0) {
+            perror("fork failed");
+            exit(EXIT_FAILURE);
+        }
+        if (pid == 0) {
+            // Child process
+            close(socket_fd); // Close server socket in child process
+            crequest(client_fd); // Handle client request
+            close(client_fd);
+            exit(0);
+        } else {
+            // Parent process
+            close(client_fd); // Close client socket in parent process
+        }
+
+
+        // crequest(client_fd);
         
     }
     return 0;
@@ -88,60 +110,54 @@ int main()
 
 
 void crequest(int client_fd){
-    pid_t pid;
-
-    // Fork a child process
-    pid = fork();
-    if (pid < 0) { // Error forking
-        fprintf(stderr, "Error forking\n");
-        exit(EXIT_FAILURE);
-    }else if(pid == 0){
-        // child process
-        // here we shall actually handle the client
-        // enter an infinite loop to handle the commands
-        char *args[ARG_SIZE];
-        // int num;
-        // char buffer[10241];
-        while(1){
-
-
-
-            handle_incoming_strings(args, client_fd);
-            // if ((num = recv(client_fd, buffer, 10240,0))== -1) {
-            //     //fprintf(stderr,"Error in receiving message!!\n");
-            //     perror("recv");
-            //     exit(1);
-            // }   
-            if (strcmp(args[0],"quitc")==0) {
-                printf("Connection closed\n");
-                break;
+    
+    // here we shall actually handle the client
+    // enter an infinite loop to handle the commands
+    char *args[ARG_SIZE];
+    int read_size;
+    int num_args;
+    // char buffer[10241];
+    while(1){
+        
+        handle_incoming_strings(args, client_fd, &num_args);
+        
+        // printf("Received command: %s\n",args[0]);
+        
+        if(strcmp(args[0],"dirlist")==0){
+            if(strcmp(args[1],"-a")==0){
+                //list_dirs_alphabetically(client_fd);
+            }else{
+                list_dirs_newfirst(client_fd);
             }
-            else{
-                int i = 0;
-                while(args[i]!=NULL){
-                    printf("%s\n",args[i]);
-                    i++;
-                }
-            }
-        //  num = recv(client_fd, buffer, sizeof(buffer),0);
-            // buffer[num] = '\0';
-            // printf("Message received: %s\n", buffer);            
+
+        }
+        else if(strcmp(args[0],"w24fn")==0){
+
+        }
+        else if(strcmp(args[0],"w24fz")==0){
             
-
-
+        }
+        else if(strcmp(args[0],"w24ft")==0){
+            
+        }
+        else if(strcmp(args[0],"w24fda")==0){
+            
+        }
+        else if(strcmp(args[0],"w24fdb")==0){
+            
+        }
+        else if (strcmp(args[0],"quitc")==0) {
+            printf("Connection closed\n");
+            break;
+        }
+        else{
 
         }
 
-        close(client_fd);
-        exit(0);
-
-    }else{
-        // this is the parent here we shall do nothing 
-        // just close the client side socket 
-        // because we dont want parent to interfere with the child's communication
-        // close(socket_fd);        
-        close(client_fd);
     }
+
+    close(client_fd);
+    exit(0);
     
 }
 
@@ -150,33 +166,77 @@ void sigchild_handler(int signo){
     waitpid(-1, &status, WNOHANG);
 }
 
-void handle_incoming_strings(char **args, int client_fd){
-    char buffer[BUFFER_SIZE];
-    int num_bytes;
-    int count = 0;
-    // Read and handle each string received from the client
-    while ((num_bytes = recv(client_fd, buffer, sizeof(buffer) - 1, 0)) > 0 && count < ARG_SIZE) {
-        buffer[num_bytes] = '\0';  // Null-terminate the received data
-        args[count] = strdup(buffer);
+void handle_incoming_strings(char *args[], int client_fd, int *num_args){
 
-        if(args[count] == NULL) {
-            perror("Error allocating memory for string");
-            exit(EXIT_FAILURE);
-        }
-
-        count++;
-        
-    }
-
-    args[count] = NULL;
-
-    if (num_bytes == 0) {
-        // Client closed the connection
-        printf("Client closed the connection\n");
-    } else if (num_bytes == -1) {
-        // Error receiving data
-        perror("Error receiving data from client");
+    // Receive a message from client
+    // Receive the number of arguments sent by the client
+    if (recv(client_fd, num_args, sizeof(int), 0) < 0) {
+        perror("recv failed");
         exit(EXIT_FAILURE);
     }
+
+    // printf("Received number of arguments: %d\n", num_args);
+
+    // Receive each argument sent by the client
+    for (int i = 0; i < *num_args; i++) {
+        args[i] = malloc(MAXSIZE * sizeof(char));
+        if (recv(client_fd, args[i], MAXSIZE * sizeof(char), 0) < 0) {
+            perror("recv failed");
+            exit(EXIT_FAILURE);
+        }
+        // printf("Received argument %d: %s\n", i + 1, args[i]);
+    }
+
+
+}
+
+void list_dirs_newfirst(int client_fd){
+
+    char *ls_command = "sh";
+    char *ls_arguments[] = {"sh", "-c", "ls -1dt ~/\*/", NULL};
+
+    char buffer[PIPE_BUFFER] = {0};
+    int cp_op = dup(STDOUT_FILENO);
+    int pipe_fd[2];
+    if (pipe(pipe_fd) == -1) {
+        perror("pipe");
+        exit(EXIT_FAILURE);
+    }
+    
+    pid_t pid = fork();
+    
+    if (pid == -1) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    } 
+    else if (pid == 0) { 
+        // Child process
+        close(pipe_fd[0]); // Close the read end of the pipe
+        // int cp_out = dup(STDOUT_FILENO);
+        if (dup2(pipe_fd[1], STDOUT_FILENO) == -1) {
+            perror("dup2");
+            exit(EXIT_FAILURE);
+        }
+        close(pipe_fd[1]); // Close the original write end of the pipe
+
+        // Execute ls command
+        if (execvp(ls_command, ls_arguments) == -1) {
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        }
+    } else { // Parent process
+        close(pipe_fd[1]); // Close the write end of the pipe
+        ssize_t bytes_read;
+        while ((bytes_read = read(pipe_fd[0], buffer, PIPE_BUFFER)) > 0) {
+            if (send(client_fd, buffer, bytes_read, 0) != bytes_read) {
+                perror("send");
+                exit(EXIT_FAILURE);
+            }
+        }
+        close(pipe_fd[0]); // Close the read end of the pipe
+        dup2(cp_op, STDOUT_FILENO);
+        memset(buffer, 0, sizeof(buffer)); // Clear buffer
+    }
+
 
 }
