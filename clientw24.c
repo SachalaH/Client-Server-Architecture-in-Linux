@@ -15,7 +15,7 @@
 #define MAXLEN 128
 #define PIPE_BUFFER 4096
 
-// TODO Handle quitc on the client side
+// TODO: Check date format here
 int parse_ip(char *client_ip, char **args){
     // this function will parse the client ip
     // with respect to a space and return the count of the arguments
@@ -43,7 +43,13 @@ int validate_args(char **args, int arg_count){
         return 1;
     }
     else if(strcmp(args[0],"w24fz")==0 && arg_count==3){
-        return 1;
+        off_t size_1 = atoll(args[1]);
+        off_t size_2 = atoll(args[2]);
+        if(size_1 >= 0 && size_2 >= 0 && size_1 <= size_2){
+            return 1;
+        }else{
+            return 0;
+        }
     }
     else if(strcmp(args[0],"w24ft")==0 && arg_count>=2 && arg_count<=4){
         return 1;
@@ -157,6 +163,27 @@ int main(int argc, char *argv[])
                 }
             }
 
+            // 
+            char buffer[PIPE_BUFFER];
+            ssize_t bytes_received;
+
+            bytes_received = recv(socket_fd, buffer, PIPE_BUFFER - 1, 0);
+            if (bytes_received == 0) {
+                // Server closed the connection
+                printf("Server closed the connection\n");
+                break; // Exit the loop
+            } else if (bytes_received < 0) {
+                // Error receiving data
+                perror("recv failed");
+                exit(EXIT_FAILURE);
+            } else {
+                // Null-terminate the received data to treat it as a string
+                buffer[bytes_received] = '\0';
+                // Print received data
+                printf("%s", buffer);
+            }
+
+
 
             
 
@@ -183,27 +210,6 @@ int main(int argc, char *argv[])
         // memset(res, 0, sizeof(res)); // Clear buffer
         // Receive data from server
         // Receive data from server
-        char buffer[PIPE_BUFFER];
-        ssize_t bytes_received;
-
-        bytes_received = recv(socket_fd, buffer, PIPE_BUFFER - 1, 0);
-        if (bytes_received == 0) {
-            // Server closed the connection
-            printf("Server closed the connection\n");
-            break; // Exit the loop
-        } else if (bytes_received < 0) {
-            // Error receiving data
-            perror("recv failed");
-            exit(EXIT_FAILURE);
-        } else {
-            // Null-terminate the received data to treat it as a string
-            buffer[bytes_received] = '\0';
-            // Print received data
-            printf("%s", buffer);
-        }
-
-
-
         
         
     }   

@@ -15,18 +15,20 @@
 #include <time.h>
 
 #define PORT 8000
-#define BACKLOG 20
+#define BACKLOG 10
 #define ARG_SIZE 5
-#define BUFFER_SIZE 32
+#define PATH_LEN 1024
 #define MAXSIZE 128
 #define PIPE_BUFFER 4096
+#define MAX_FILES 50
+#define MAX_EXT 3
 
-
-
-
-
-// TODO Cleanup the array
-// TODO look into code of dirlist -t
+// TODO: Function to find files wrt size
+// TODO: Function to find files wrt date
+// TODO: Function to find files wrt extension
+// TODO: Function to create a tar
+// TODO: Function to create a gzip
+// TODO: Function to send file
 
 void crequest(int client_fd);
 void sigchild_handler(int signo);
@@ -34,6 +36,9 @@ void handle_incoming_strings(char *args[], int client_fd, int *num_args);
 void list_dirs_newfirst(int client_fd);
 void list_dirs_alphabetically(int client_fd);
 void search_file_info(char *filename, char *path, int *found, char *details);
+void search_files_with_size(char *path, off_t min_size, off_t max_size, char *file_paths[], int *num_files);
+void search_files_with_extensions(char *path, char *extensions[], int num_extensions, char *file_paths[], int *num_files);
+void search_files_with_date(const char *path, time_t target_date, char *file_paths[], int *count, const char flag);
 
 int main()
 {
@@ -169,15 +174,166 @@ void crequest(int client_fd){
 
         }
         else if(strcmp(args[0],"w24fz")==0){
+            char *dir_path = getenv("HOME");
+            off_t size_1 = atoll(args[1]);
+            off_t size_2 = atoll(args[2]);
+            
+            // Create an array to store file paths
+            char *file_paths[MAX_FILES];
+            int num_files = 0;
+
+            // Search for files within the specified size range
+            search_files_with_size(dir_path, size_1, size_2, file_paths, &num_files);
+
+            if(num_files){
+                // Print the file paths
+                printf("Files within the size range [%ld, %ld] in directory %s:\n", size_1, size_2, dir_path);
+                for (int i = 0; i < num_files; i++)
+                {
+                    printf("%s\n", file_paths[i]);
+                }
+                char *msg = "Files found.\n";
+                int bytes_sent = send(client_fd, msg, strlen(msg), 0);
+                if (bytes_sent == -1){
+                    perror("send");
+                    exit(EXIT_FAILURE);
+                }
+
+                // create a tar file
+                // and zip it 
+                // send it
+            }else{
+                // send the message no files found 
+            }
+
+
             
         }
         else if(strcmp(args[0],"w24ft")==0){
+            char *dir_path = getenv("HOME");
+            int ext_count = 1;
+            char *extensions[MAX_EXT];
+            while(args[ext_count] != NULL){
+                extensions[ext_count-1] = args[ext_count];
+                ext_count++;
+            }
+            // Create an array to store file paths
+            char *file_paths[MAX_FILES];
+            int num_files = 0;
+            search_files_with_extensions(dir_path, extensions, ext_count-1, file_paths, &num_files);
+            if(num_files){
+                // Print the file paths
+                printf("Files with specified extensions:\n");
+                for (int i = 0; i < num_files; i++)
+                {
+                    printf("%s\n", file_paths[i]);
+                }
+                char *msg = "Files found.\n";
+                int bytes_sent = send(client_fd, msg, strlen(msg), 0);
+                if (bytes_sent == -1){
+                    perror("send");
+                    exit(EXIT_FAILURE);
+                }
+
+                // create a tar file
+                // and zip it 
+                // send it
+            }else{
+                // send the message no files found 
+            }
+
+
             
         }
         else if(strcmp(args[0],"w24fda")==0){
+            char *dir_path = getenv("HOME");
+            const char *string_date = args[1];
+            const char flag = 'a';
+            // Create a struct tm variable to store the parsed date
+            struct tm tm_date = {0};
+
+            // Parse the string date into the struct tm
+            if (strptime(string_date, "%Y-%m-%d", &tm_date) == NULL) {
+                fprintf(stderr, "Error parsing time string\n");
+                exit(EXIT_FAILURE);
+            }
+
+            // Convert the struct tm to time_t
+            time_t converted_date = mktime(&tm_date);
+
+            // Create an array to store file paths
+            char *file_paths[MAX_FILES];
+            int num_files = 0;
+
+            search_files_with_date(dir_path, converted_date, file_paths, &num_files, flag);
+
+            if(num_files){
+                // Print the file paths
+                printf("Files after the date:\n");
+                for (int i = 0; i < num_files; i++)
+                {
+                    printf("%s\n", file_paths[i]);
+                }
+                char *msg = "Files found.\n";
+                int bytes_sent = send(client_fd, msg, strlen(msg), 0);
+                if (bytes_sent == -1){
+                    perror("send");
+                    exit(EXIT_FAILURE);
+                }
+
+                // create a tar file
+                // and zip it 
+                // send it
+            }else{
+                // send the message no files found 
+            }
+
+
             
         }
         else if(strcmp(args[0],"w24fdb")==0){
+            char *dir_path = getenv("HOME");
+            const char *string_date = args[1];
+            const char flag = 'b';
+            // Create a struct tm variable to store the parsed date
+            struct tm tm_date = {0};
+
+            // Parse the string date into the struct tm
+            if (strptime(string_date, "%Y-%m-%d", &tm_date) == NULL) {
+                fprintf(stderr, "Error parsing time string\n");
+                exit(EXIT_FAILURE);
+            }
+
+            // Convert the struct tm to time_t
+            time_t converted_date = mktime(&tm_date);
+            
+            // Create an array to store file paths
+            char *file_paths[MAX_FILES];
+            int num_files = 0;
+
+            search_files_with_date(dir_path, converted_date, file_paths, &num_files, flag);
+
+            if(num_files){
+                // Print the file paths
+                printf("Files before the date:\n");
+                for (int i = 0; i < num_files; i++)
+                {
+                    printf("%s\n", file_paths[i]);
+                }
+                char *msg = "Files found.\n";
+                int bytes_sent = send(client_fd, msg, strlen(msg), 0);
+                if (bytes_sent == -1){
+                    perror("send");
+                    exit(EXIT_FAILURE);
+                }
+
+                // create a tar file
+                // and zip it 
+                // send it
+            }else{
+                // send the message no files found 
+            }
+
             
         }
         else if (strcmp(args[0],"quitc")==0) {
@@ -371,5 +527,170 @@ void search_file_info(char *filename, char *path, int *found, char *details){
     }
 
     // Close the directory
+    closedir(dir);
+}
+
+void search_files_with_size(char *path, off_t min_size, off_t max_size, char *file_paths[], int *num_files){
+    DIR *dir;
+    struct dirent *dp;
+    struct stat st;
+    char buf[PATH_LEN];
+
+    // Open the directory at the specified path
+    dir = opendir(path);
+    if (dir == NULL)
+    {
+        perror("opendir");
+        return;
+    }
+
+    // Traverse the directory
+    while ((dp = readdir(dir)) != NULL)
+    {
+        // Check if the current directory entry is a hidden directory
+        if (dp->d_name[0] == '.')
+        {
+            continue; // Skip hidden directories
+        }
+
+        // Construct the full path to the current entry
+        sprintf(buf, "%s/%s", path, dp->d_name);
+
+        // Get the file stats
+        if (stat(buf, &st) == 0)
+        {
+            // Check if the current entry is a regular file
+            if (S_ISREG(st.st_mode))
+            {
+                // Check if the file size is within the specified range
+                if (st.st_size >= min_size && st.st_size <= max_size && *num_files < MAX_FILES)
+                {
+                    // Add the file path to the array
+                    file_paths[*num_files] = strdup(buf);
+                    (*num_files)++;
+                }
+            }
+            else if (S_ISDIR(st.st_mode))
+            {
+                // Recursively search subdirectories
+                search_files_with_size(buf, min_size, max_size, file_paths, num_files);
+            }
+        }
+    }
+
+    // Close the directory
+    closedir(dir);
+}
+
+void search_files_with_extensions(char *path, char *extensions[], int num_extensions, char *file_paths[], int *num_files){
+    DIR *dir;
+    struct dirent *dp;
+    struct stat st;
+    char buf[PATH_LEN];
+
+    // Open the directory at the specified path
+    dir = opendir(path);
+    if (dir == NULL)
+    {
+        perror("opendir");
+        return;
+    }
+
+    // Traverse the directory
+    while ((dp = readdir(dir)) != NULL)
+    {
+        // Check if the current directory entry is a hidden directory
+        if (dp->d_name[0] == '.')
+        {
+            continue; // Skip hidden directories
+        }
+
+        // Construct the full path to the current entry
+        sprintf(buf, "%s/%s", path, dp->d_name);
+
+        // Get the file stats
+        if (stat(buf, &st) == 0)
+        {
+            // Check if the current entry is a regular file
+            if (S_ISREG(st.st_mode))
+            {
+                // Check if the file has one of the specified extensions
+                char *file_extension = strrchr(dp->d_name, '.');
+                if (file_extension != NULL && *num_files < MAX_FILES)
+                {
+                    for (int i = 0; i < num_extensions; i++)
+                    {
+                        if (strcmp(file_extension + 1, extensions[i]) == 0)
+                        {
+                            // Add the file path to the array
+                            file_paths[*num_files] = strdup(buf);
+                            (*num_files)++;
+                            break;
+                        }
+                    }
+                }
+            }
+            else if (S_ISDIR(st.st_mode))
+            {
+                // Recursively search subdirectories
+                search_files_with_extensions(buf, extensions, num_extensions, file_paths, num_files);
+            }
+        }
+    }
+
+    // Close the directory
+    closedir(dir);
+}
+
+void search_files_with_date(const char *path, time_t target_date, char *file_paths[], int *count, const char flag){
+    DIR *dir;
+    struct dirent *entry;
+    struct stat statbuf;
+    char full_path[PATH_LEN];
+
+    if (!(dir = opendir(path))) {
+        perror("opendir");
+        exit(EXIT_FAILURE);
+    }
+
+    
+    while ((entry = readdir(dir)) != NULL) {
+        // Skip hidden directories
+        if (entry->d_name[0] == '.')
+            continue;
+
+        snprintf(full_path, PATH_LEN, "%s/%s", path, entry->d_name);
+
+        if (stat(full_path, &statbuf) == -1) {
+            perror("stat");
+            continue;
+        }
+
+        if (S_ISDIR(statbuf.st_mode)) {
+            
+            search_files_with_date(full_path, target_date, file_paths, count, flag);
+        } else {
+            if(flag == 'a'){
+                time_t creation_time = statbuf.st_atime;
+                // Calculate the difference in seconds between the two dates
+                double difference = difftime(creation_time, target_date);
+                // printf("%ld\n",creation_time);
+                if (difference > 0 && *count < MAX_FILES) {
+                    file_paths[*count] = strdup(full_path);
+                    (*count)++;
+                }
+            }else{
+
+                time_t creation_time = statbuf.st_atime;
+                // Calculate the difference in seconds between the two dates
+                double difference = difftime(creation_time, target_date);
+                // printf("%ld\n",creation_time);
+                if (difference < 0 && *count < MAX_FILES) {
+                    file_paths[*count] = strdup(full_path);
+                    (*count)++;
+                }
+            }
+        }
+    }
     closedir(dir);
 }
