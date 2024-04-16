@@ -8,12 +8,17 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+#include <sys/stat.h>
 
-#define PORT 8000
+
+#define PORT 4409
 #define MAXSIZE 1024
 #define ARG_SIZE 5
 #define MAXLEN 128
 #define PIPE_BUFFER 4096
+#define FILE_BUFF 1048576
 
 // TODO: Check date format here
 int parse_ip(char *client_ip, char **args){
@@ -82,6 +87,94 @@ void send_parsed_input(int socket_fd, char **args, int count){
     }
 }
 
+void create_file_dir(char *storage_dir){
+    pid_t pid;
+    int status;
+
+    // Fork a child process
+    if ((pid = fork()) < 0) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        // Check if the directory exists
+        struct stat st;
+        if (stat(storage_dir, &st) == 0) {
+            // Directory exists
+            exit(EXIT_SUCCESS);
+        }else{
+            // Child process
+            // Build the command arguments
+            char *args[3];
+            args[0] = "mkdir";
+            args[1] = storage_dir;
+            args[2] = NULL;
+            
+            // Execute command
+            execvp("mkdir", args);
+
+            // execvp only returns if an error occurs
+            perror("execvp");
+            exit(EXIT_FAILURE);
+        }
+        
+    } else {
+        // Parent process
+        // Wait for the child process to complete
+        waitpid(pid, &status, 0);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "Error: tar command failed\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+}
+
+void receive_file_from_server(int socket_fd, const char *output_file) {
+    int fd = open(output_file, O_WRONLY | O_CREAT | O_TRUNC, 0777);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+
+    // Receive the file in chunks and write it to the output file
+    char buffer[FILE_BUFF] = {0};
+    ssize_t bytes_received, bytes_written;
+    int flag = 1;
+    // while(flag){
+        bytes_received = read(socket_fd, buffer, sizeof(buffer));
+        if (bytes_received == 0){
+            // We're done reading from the socket
+            // break;
+            // return;
+            flag = 0;
+        } else if (bytes_received < 0) {
+            // handle errors
+            perror("read");
+            exit(EXIT_FAILURE);
+        } else {
+
+            void *p = buffer;
+            while (bytes_received > 0) {
+                int bytes_written = write(fd, p, bytes_received);
+                if (bytes_written <= 0) {
+                    // handle errors
+                }
+                bytes_received -= bytes_written;
+                p += bytes_written;
+            }
+        }
+
+    // }
+    // printf("I am outside the loop.\n")
+
+    // Close the file
+    close(fd);
+
+}
+
+
+// count of files received
+int file_count = 1;
 int main(int argc, char *argv[])
 {
     struct sockaddr_in server_info;
@@ -180,7 +273,41 @@ int main(int argc, char *argv[])
                 // Null-terminate the received data to treat it as a string
                 buffer[bytes_received] = '\0';
                 // Print received data
-                printf("%s", buffer);
+                if(strcmp(buffer, "temp.tar.gz")==0)
+                {
+                    if(file_count == 1){
+                        char *dir_path = getenv("HOME");
+                        char storage_dir[MAXLEN];
+                        // Copy the home path to the complete path buffer
+                        strncpy(storage_dir, dir_path, MAXLEN);
+                        // Check if the home path ends with a slash "/"
+                        if (storage_dir[strlen(storage_dir) - 1] != '/') {
+                            // If not, append a slash
+                            strcat(storage_dir, "/");
+                        }
+
+                        // Append "/temp.tar" to the complete path
+                        strcat(storage_dir, "w24project");
+                        // create the directory
+                        create_file_dir(storage_dir);
+                    }
+                    // use dynamic naming
+                    char *home = getenv("HOME");
+                    char filename[MAXLEN];
+
+                    // Format the file name string with the count variable
+                    sprintf(filename, "%s/w24project/temp-%d.tar.gz", home, file_count);
+
+                    receive_file_from_server(socket_fd,filename);
+                    file_count++;
+                    printf("File received successfully.\n");
+
+                }
+                else
+                {
+                    printf("%s", buffer);
+
+                }
             }
 
 
@@ -189,28 +316,19 @@ int main(int argc, char *argv[])
 
         }else{
             // dont send instead prompt client with proper sytanx of the commands
+            printf("Invalid command.\nList of commands accepted.\n");
+            printf("1. dirlist -a\n");
+            printf("2. dirlist -t\n");
+            printf("3. w24fn <filename>\n");
+            printf("4. w24fz <size 1> <size 2>\n");
+            printf("5. w24ft <extension 1> <extension 2> <extension 3> (2 and 3 are optional)\n");
+            printf("6. w24fda <date> (format YYYY-MM-DD)\n");
+            printf("7. w24fdb <date> (format YYYY-MM-DD)\n");
+            printf("8. quitc\n");
+
 
         }
 
-
-
-        
-        // // Receive data from server
-        // char *res[PIPE_BUFFER] = {0};
-        // ssize_t bytes_received;
-        // while ((bytes_received = recv(socket_fd, res, PIPE_BUFFER, 0)) > 0) {
-        //     // Print received data
-        //     printf("%s", res);
-        // }
-        // if (bytes_received < 0) {
-        //     perror("recv failed");
-        //     exit(EXIT_FAILURE);
-        // }
-
-        // memset(res, 0, sizeof(res)); // Clear buffer
-        // Receive data from server
-        // Receive data from server
-        
         
     }   
 

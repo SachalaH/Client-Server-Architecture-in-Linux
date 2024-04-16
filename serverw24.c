@@ -13,15 +13,17 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <fcntl.h>
 
-#define PORT 8000
+#define PORT 4409
 #define BACKLOG 10
 #define ARG_SIZE 5
 #define PATH_LEN 1024
 #define MAXSIZE 128
 #define PIPE_BUFFER 4096
-#define MAX_FILES 50
+#define MAX_FILES 20
 #define MAX_EXT 3
+#define FILE_BUFF 1048576
 
 // TODO: Function to find files wrt size
 // TODO: Function to find files wrt date
@@ -39,6 +41,9 @@ void search_file_info(char *filename, char *path, int *found, char *details);
 void search_files_with_size(char *path, off_t min_size, off_t max_size, char *file_paths[], int *num_files);
 void search_files_with_extensions(char *path, char *extensions[], int num_extensions, char *file_paths[], int *num_files);
 void search_files_with_date(const char *path, time_t target_date, char *file_paths[], int *count, const char flag);
+void create_tar_file(const char *output_file, char *file_paths[], int *num_files);
+void compress_tar_file(const char *tar_file);
+void send_file_to_client(int client_socket);
 
 int main()
 {
@@ -52,10 +57,7 @@ int main()
     socklen_t size;
 
     char *buff;
-//  memset(buffer,0,sizeof(buffer));
     int yes =1;
-
-
 
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0))== -1) {
         fprintf(stderr, "Socket failure!!\n");
@@ -109,9 +111,6 @@ int main()
             // Parent process
             close(client_fd); // Close client socket in parent process
         }
-
-
-        // crequest(client_fd);
         
     }
     return 0;
@@ -186,24 +185,44 @@ void crequest(int client_fd){
             search_files_with_size(dir_path, size_1, size_2, file_paths, &num_files);
 
             if(num_files){
-                // Print the file paths
-                printf("Files within the size range [%ld, %ld] in directory %s:\n", size_1, size_2, dir_path);
-                for (int i = 0; i < num_files; i++)
-                {
-                    printf("%s\n", file_paths[i]);
+                // create a tar file
+                char tar_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(tar_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (tar_file_path[strlen(tar_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(tar_file_path, "/");
                 }
-                char *msg = "Files found.\n";
+
+                // Append "/temp.tar" to the complete path
+                strcat(tar_file_path, "temp.tar");
+                create_tar_file(tar_file_path, file_paths, &num_files);
+                // and zip it 
+                compress_tar_file(tar_file_path);
+                // send it
+                send_file_to_client(client_fd);
+                // remove the zip file created as it is sent to the client
+                char gz_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(gz_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (gz_file_path[strlen(gz_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(gz_file_path, "/");
+                }
+
+                // Append "/temp.tar" to the complete path
+                strcat(gz_file_path, "temp.tar.gz");
+                unlink(gz_file_path);
+            }else{
+                // send the message no files found 
+                char *msg = "No file found.\n";
                 int bytes_sent = send(client_fd, msg, strlen(msg), 0);
                 if (bytes_sent == -1){
                     perror("send");
                     exit(EXIT_FAILURE);
                 }
-
-                // create a tar file
-                // and zip it 
-                // send it
-            }else{
-                // send the message no files found 
             }
 
 
@@ -222,24 +241,45 @@ void crequest(int client_fd){
             int num_files = 0;
             search_files_with_extensions(dir_path, extensions, ext_count-1, file_paths, &num_files);
             if(num_files){
-                // Print the file paths
-                printf("Files with specified extensions:\n");
-                for (int i = 0; i < num_files; i++)
-                {
-                    printf("%s\n", file_paths[i]);
+                // create a tar file
+                char tar_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(tar_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (tar_file_path[strlen(tar_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(tar_file_path, "/");
                 }
-                char *msg = "Files found.\n";
+
+                // Append "/temp.tar" to the complete path
+                strcat(tar_file_path, "temp.tar");
+                create_tar_file(tar_file_path, file_paths, &num_files);
+                // and zip it 
+                compress_tar_file(tar_file_path);
+                
+                // send it
+                send_file_to_client(client_fd);
+                // remove the zip file created as it is sent to the client
+                char gz_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(gz_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (gz_file_path[strlen(gz_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(gz_file_path, "/");
+                }
+
+                // Append "/temp.tar" to the complete path
+                strcat(gz_file_path, "temp.tar.gz");
+                unlink(gz_file_path);
+            }else{
+                // send the message no files found 
+                char *msg = "No file found.\n";
                 int bytes_sent = send(client_fd, msg, strlen(msg), 0);
                 if (bytes_sent == -1){
                     perror("send");
                     exit(EXIT_FAILURE);
                 }
-
-                // create a tar file
-                // and zip it 
-                // send it
-            }else{
-                // send the message no files found 
             }
 
 
@@ -268,24 +308,44 @@ void crequest(int client_fd){
             search_files_with_date(dir_path, converted_date, file_paths, &num_files, flag);
 
             if(num_files){
-                // Print the file paths
-                printf("Files after the date:\n");
-                for (int i = 0; i < num_files; i++)
-                {
-                    printf("%s\n", file_paths[i]);
+                // create a tar file
+                char tar_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(tar_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (tar_file_path[strlen(tar_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(tar_file_path, "/");
                 }
-                char *msg = "Files found.\n";
+
+                // Append "/temp.tar" to the complete path
+                strcat(tar_file_path, "temp.tar");
+                create_tar_file(tar_file_path, file_paths, &num_files);
+                // and zip it 
+                compress_tar_file(tar_file_path);
+                // send it
+                send_file_to_client(client_fd);
+                // remove the zip file created as it is sent to the client
+                char gz_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(gz_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (gz_file_path[strlen(gz_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(gz_file_path, "/");
+                }
+
+                // Append "/temp.tar" to the complete path
+                strcat(gz_file_path, "temp.tar.gz");
+                unlink(gz_file_path);
+            }else{
+                // send the message no files found 
+                char *msg = "No file found.\n";
                 int bytes_sent = send(client_fd, msg, strlen(msg), 0);
                 if (bytes_sent == -1){
                     perror("send");
                     exit(EXIT_FAILURE);
                 }
-
-                // create a tar file
-                // and zip it 
-                // send it
-            }else{
-                // send the message no files found 
             }
 
 
@@ -314,24 +374,43 @@ void crequest(int client_fd){
             search_files_with_date(dir_path, converted_date, file_paths, &num_files, flag);
 
             if(num_files){
-                // Print the file paths
-                printf("Files before the date:\n");
-                for (int i = 0; i < num_files; i++)
-                {
-                    printf("%s\n", file_paths[i]);
+                // create a tar file
+                char tar_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(tar_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (tar_file_path[strlen(tar_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(tar_file_path, "/");
                 }
-                char *msg = "Files found.\n";
+
+                // Append "/temp.tar" to the complete path
+                strcat(tar_file_path, "temp.tar");
+                create_tar_file(tar_file_path, file_paths, &num_files);
+                compress_tar_file(tar_file_path);
+                // send it
+                send_file_to_client(client_fd);
+                // remove the zip file created as it is sent to the client
+                char gz_file_path[PATH_LEN];
+                // Copy the home path to the complete path buffer
+                strncpy(gz_file_path, dir_path, PATH_LEN);
+                // Check if the home path ends with a slash "/"
+                if (gz_file_path[strlen(gz_file_path) - 1] != '/') {
+                    // If not, append a slash
+                    strcat(gz_file_path, "/");
+                }
+
+                // Append "/temp.tar" to the complete path
+                strcat(gz_file_path, "temp.tar.gz");
+                unlink(gz_file_path);
+            }else{
+                // send the message no files found 
+                char *msg = "No file found.\n";
                 int bytes_sent = send(client_fd, msg, strlen(msg), 0);
                 if (bytes_sent == -1){
                     perror("send");
                     exit(EXIT_FAILURE);
                 }
-
-                // create a tar file
-                // and zip it 
-                // send it
-            }else{
-                // send the message no files found 
             }
 
             
@@ -693,4 +772,141 @@ void search_files_with_date(const char *path, time_t target_date, char *file_pat
         }
     }
     closedir(dir);
+}
+
+void create_tar_file(const char *output_file, char *file_paths[], int *num_files){
+    pid_t pid;
+    int status;
+
+    // Fork a child process
+    if ((pid = fork()) < 0) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        // Child process
+        // Build the command arguments
+        char *args[*num_files + 4];
+        args[0] = "tar";
+        args[1] = "-cf";
+        args[2] = (char *)output_file;
+        for (int i = 0; i < *num_files; i++) {
+            args[i + 3] = file_paths[i];
+        }
+        args[*num_files + 3] = NULL;
+
+        // Execute tar command
+        execvp("tar", args);
+
+        // execvp only returns if an error occurs
+        perror("execvp");
+        exit(EXIT_FAILURE);
+    } else {
+        // Parent process
+        // Wait for the child process to complete
+        waitpid(pid, &status, 0);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "Error: tar command failed\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+}
+
+void compress_tar_file(const char *tar_file){
+    pid_t pid;
+    int status;
+
+    // Fork a child process
+    if ((pid = fork()) < 0) {
+        perror("fork");
+        exit(EXIT_FAILURE);
+    } else if (pid == 0) {
+        // Child process
+
+        // Execute gzip command
+        execlp("gzip", "gzip", "-f", tar_file, NULL);
+
+        // execlp only returns if an error occurs
+        perror("execlp");
+        exit(EXIT_FAILURE);
+    } else {
+        // Parent process
+        // Wait for the child process to complete
+        waitpid(pid, &status, 0);
+        if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
+            fprintf(stderr, "Error: gzip command failed\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+void send_file_to_client(int client_fd){
+
+    char gz_file_path[PATH_LEN];
+    char *dir_path = getenv("HOME");
+    // Copy the home path to the complete path buffer
+    strncpy(gz_file_path, dir_path, PATH_LEN);
+    // Check if the home path ends with a slash "/"
+    if (gz_file_path[strlen(gz_file_path) - 1] != '/') {
+        // If not, append a slash
+        strcat(gz_file_path, "/");
+    }
+
+    // Append "/temp.tar" to the complete path
+    strcat(gz_file_path, "temp.tar.gz");
+
+    int fd = open(gz_file_path, O_RDONLY);
+    if (fd < 0) {
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
+
+    char *msg = "temp.tar.gz";
+    int bytes_sent = send(client_fd, msg, strlen(msg), 0);
+    if (bytes_sent == -1){
+        perror("send");
+        exit(EXIT_FAILURE);
+    }
+
+    // Read the file in chunks and send it to the client
+    char buffer[FILE_BUFF] = {0};
+    ssize_t bytes_read;
+    int flag = 1;
+
+    // while(flag){
+        bytes_read = read(fd, buffer, sizeof(buffer));
+
+        if (bytes_read == 0){
+            // We're done reading from the file
+            return;
+        } else if (bytes_read < 0) {
+            // handle errors
+            perror("read");
+            exit(EXIT_FAILURE);
+        } else {
+
+            void *p = buffer;
+            while (bytes_read > 0) {
+                int bytes_written = write(client_fd, p, bytes_read);
+                if (bytes_written <= 0) {
+                    // handle errors
+                }
+                bytes_read -= bytes_written;
+                p += bytes_written;
+            }
+
+        }
+
+    // }
+
+    // Close the file
+    close(fd);
+
+    // // Send a null character to indicate end of file transmission
+    // char null_char = '\0';
+    // bytes_read = send(client_fd, &null_char, sizeof(null_char), 0);
+    // if (bytes_read < 0) {
+    //     perror("send");
+    //     exit(EXIT_FAILURE);
+    // }
 }
