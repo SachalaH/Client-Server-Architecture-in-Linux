@@ -1,3 +1,8 @@
+// ASP Project W24
+// Team members 
+// Harsh Sachala - 110124409
+// Rahul Patel - 110128309
+// Including the necessary headers
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -16,7 +21,7 @@
 #include <fcntl.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
-
+// Defining the constants
 #define PORT 4409
 #define BACKLOG 10
 #define ARG_SIZE 5
@@ -28,8 +33,10 @@
 #define FILE_BUFF 1048576
 #define SHM_KEY 4409
 
+// initializing the shared global variable of client count
 int *client_count;
 
+// function prototypes
 void init_shared_memory();
 void crequest(int client_fd);
 void sigchild_handler(int signo);
@@ -44,13 +51,14 @@ void create_tar_file(const char *output_file, char *file_paths[], int *num_files
 void compress_tar_file(const char *tar_file);
 void send_file_to_client(int client_socket);
 
+// main function starts here
 int main()
 {
+    // first initializing the share memory for client count
+    init_shared_memory();
 
     // registering a signal for sig child sent by children
     // so that processes that exits while running in background gets acknowledged
-    init_shared_memory();
-
     signal(SIGCHLD, sigchild_handler);
     struct sockaddr_in server;
     struct sockaddr_in dest;
@@ -59,7 +67,7 @@ int main()
 
     char *buff;
     int yes =1;
-
+    // creating the socket
     if ((socket_fd = socket(AF_INET, SOCK_STREAM, 0))== -1) {
         fprintf(stderr, "Socket failure!!\n");
         exit(1);
@@ -74,11 +82,14 @@ int main()
     server.sin_family = AF_INET;
     server.sin_port = htons(PORT);
     server.sin_addr.s_addr = INADDR_ANY; 
+
+    // binding the socket to the port
     if ((bind(socket_fd, (struct sockaddr *)&server, sizeof(struct sockaddr )))== -1)    { //sizeof(struct sockaddr) 
         fprintf(stderr, "Binding Failure\n");
         exit(1);
     }
 
+    // listening for the incoming requests
     if ((listen(socket_fd, BACKLOG))== -1){
         fprintf(stderr, "Listening Failure\n");
         exit(1);
@@ -90,7 +101,6 @@ int main()
     while(1) {
 
         if ((client_fd = accept(socket_fd, (struct sockaddr *)&dest, &size))==-1) {
-            //fprintf(stderr,"Accept Failure\n");
             perror("accept");
             exit(1);
         }
@@ -104,8 +114,8 @@ int main()
         }
         if (pid == 0) {
             // Child process
-            close(socket_fd); // Close server socket in child process
-            crequest(client_fd); // Handle client request
+            close(socket_fd); // Close server socket in child process 
+            crequest(client_fd); // Handle client request in this function
             close(client_fd);
             exit(0);
         } else {
@@ -117,14 +127,17 @@ int main()
     return 0;
 }
 
+// function to initialize the shared memory
 void init_shared_memory(){
     int shmid;
+    // Create a new shared memory segment or access an existing one with the specified key
     if ((shmid = shmget(SHM_KEY, sizeof(int), IPC_CREAT | 0666)) < 0)
     {
         perror("shmget");
         exit(1);
     }
 
+    // Attach the shared memory segment to the client's address space
     if ((client_count = shmat(shmid, NULL, 0)) == (int *)-1)
     {
         perror("shmat");
@@ -132,25 +145,26 @@ void init_shared_memory(){
     }
 }
 
-
+// function to serve the client
 void crequest(int client_fd){
     
     // here we shall actually handle the client
-    // enter an infinite loop to handle the commands
     char *args[ARG_SIZE];
     int read_size;
     int num_args;
-    // char buffer[10241];
+    // enters an infinite loop to handle the commands
     while(1){
+        // flushing the std output
         fflush(stdout);
-
+        // reseting the arguments array
         memset(args,0,sizeof(args));
-        
+        // calling function to parse the incoming list of strings from client 
         handle_incoming_strings(args, client_fd, &num_args);
-        
-        // printf("Received command: %s\n",args[0]);
-        
+
+        // handling each command        
         if(strcmp(args[0],"dirlist")==0){
+            // checking if the argument is -a or -t
+            // and calling the respective functions 
             if(strcmp(args[1],"-a")==0){
                 printf("Command received: dirlist -a\n");
                 list_dirs_alphabetically(client_fd);
@@ -162,12 +176,17 @@ void crequest(int client_fd){
         }
         else if(strcmp(args[0],"w24fn")==0){
             printf("Command received: w24fn\n");
+            // getting the file name 
+            // declaring the root directory
             char *filename = args[1];
             char *root = getenv("HOME");
+            // flag to check if file is found or not
             int found = 0;
+            // buffer to add file details to
             char details[PIPE_BUFFER];
+            // calling the function to search for the file
             search_file_info(filename, root, &found, details);
-            // If the file was not found, print an error message
+            // If the file was not found, send an error message
             if (!found)
             {
                 char *msg = "File not found.\n";
@@ -177,6 +196,7 @@ void crequest(int client_fd){
                     exit(EXIT_FAILURE);
                 }
             }
+            // else send its required details 
             else
             {
                 int bytes_sent = send(client_fd, details, strlen(details), 0);
@@ -188,7 +208,9 @@ void crequest(int client_fd){
 
         }
         else if(strcmp(args[0],"w24fz")==0){
+            // getting the root path
             char *dir_path = getenv("HOME");
+            // converting the size 
             off_t size_1 = atoll(args[1]);
             off_t size_2 = atoll(args[2]);
             
@@ -200,7 +222,7 @@ void crequest(int client_fd){
             search_files_with_size(dir_path, size_1, size_2, file_paths, &num_files);
 
             if(num_files){
-                // create a tar file
+                // create a tar file path
                 char tar_file_path[PATH_LEN];
                 // Copy the home path to the complete path buffer
                 strncpy(tar_file_path, dir_path, PATH_LEN);
@@ -212,12 +234,14 @@ void crequest(int client_fd){
 
                 // Append "/temp.tar" to the complete path
                 strcat(tar_file_path, "temp.tar");
+                // call function to create the tar file
                 create_tar_file(tar_file_path, file_paths, &num_files);
-                // and zip it 
+                // and zip the tar file
                 compress_tar_file(tar_file_path);
-                // send it
+                // send it to the client 
                 send_file_to_client(client_fd);
                 // remove the zip file created as it is sent to the client
+                // first create the zip file path name
                 char gz_file_path[PATH_LEN];
                 // Copy the home path to the complete path buffer
                 strncpy(gz_file_path, dir_path, PATH_LEN);
@@ -229,9 +253,10 @@ void crequest(int client_fd){
 
                 // Append "/temp.tar" to the complete path
                 strcat(gz_file_path, "temp.tar.gz");
+                // delete the created file to remove it from the server side
                 unlink(gz_file_path);
             }else{
-                // send the message no files found 
+                // send the message no files found if number of files is 0
                 char *msg = "No file found.\n";
                 int bytes_sent = send(client_fd, msg, strlen(msg), 0);
                 if (bytes_sent == -1){
@@ -244,9 +269,13 @@ void crequest(int client_fd){
             
         }
         else if(strcmp(args[0],"w24ft")==0){
+            // creating the root directory
             char *dir_path = getenv("HOME");
+            // initial count of the extension is 1 i.e. min 1
             int ext_count = 1;
+            // creating list of extensions
             char *extensions[MAX_EXT];
+            // add the extensions received
             while(args[ext_count] != NULL){
                 extensions[ext_count-1] = args[ext_count];
                 ext_count++;
@@ -254,6 +283,7 @@ void crequest(int client_fd){
             // Create an array to store file paths
             char *file_paths[MAX_FILES];
             int num_files = 0;
+            // call the function to find respective files 
             search_files_with_extensions(dir_path, extensions, ext_count-1, file_paths, &num_files);
             if(num_files){
                 // create a tar file
@@ -268,11 +298,12 @@ void crequest(int client_fd){
 
                 // Append "/temp.tar" to the complete path
                 strcat(tar_file_path, "temp.tar");
+                // create the tar file
                 create_tar_file(tar_file_path, file_paths, &num_files);
                 // and zip it 
                 compress_tar_file(tar_file_path);
                 
-                // send it
+                // send it to the client
                 send_file_to_client(client_fd);
                 // remove the zip file created as it is sent to the client
                 char gz_file_path[PATH_LEN];
@@ -286,9 +317,10 @@ void crequest(int client_fd){
 
                 // Append "/temp.tar" to the complete path
                 strcat(gz_file_path, "temp.tar.gz");
+                // delete the file from the server
                 unlink(gz_file_path);
             }else{
-                // send the message no files found 
+                // send the message no files found if count is 0
                 char *msg = "No file found.\n";
                 int bytes_sent = send(client_fd, msg, strlen(msg), 0);
                 if (bytes_sent == -1){
@@ -301,12 +333,14 @@ void crequest(int client_fd){
             
         }
         else if(strcmp(args[0],"w24fda")==0){
+            // getting the root dir
             char *dir_path = getenv("HOME");
             const char *string_date = args[1];
+            // flag is a meaning after 
             const char flag = 'a';
             // Create a struct tm variable to store the parsed date
             struct tm tm_date = {0};
-
+            // parsing the string date to proper date for comparision
             // Parse the string date into the struct tm
             if (strptime(string_date, "%Y-%m-%d", &tm_date) == NULL) {
                 fprintf(stderr, "Error parsing time string\n");
@@ -319,7 +353,7 @@ void crequest(int client_fd){
             // Create an array to store file paths
             char *file_paths[MAX_FILES];
             int num_files = 0;
-
+            // calling the function to search the files
             search_files_with_date(dir_path, converted_date, file_paths, &num_files, flag);
 
             if(num_files){
@@ -335,6 +369,7 @@ void crequest(int client_fd){
 
                 // Append "/temp.tar" to the complete path
                 strcat(tar_file_path, "temp.tar");
+                // create the tar file
                 create_tar_file(tar_file_path, file_paths, &num_files);
                 // and zip it 
                 compress_tar_file(tar_file_path);
@@ -352,6 +387,7 @@ void crequest(int client_fd){
 
                 // Append "/temp.tar" to the complete path
                 strcat(gz_file_path, "temp.tar.gz");
+                // delete it 
                 unlink(gz_file_path);
             }else{
                 // send the message no files found 
@@ -431,6 +467,7 @@ void crequest(int client_fd){
             
         }
         else if (strcmp(args[0],"quitc")==0) {
+            // just break the loop it will close
             printf("Connection closed\n");
             break;
         }
@@ -442,11 +479,13 @@ void crequest(int client_fd){
     
 }
 
+// sigchild handler to handle defunct clients
 void sigchild_handler(int signo){
     int status;
     waitpid(-1, &status, WNOHANG);
 }
 
+// function to handle the incoming strings from client and form an array
 void handle_incoming_strings(char *args[], int client_fd, int *num_args){
 
     // Receive a message from client
@@ -456,28 +495,29 @@ void handle_incoming_strings(char *args[], int client_fd, int *num_args){
         exit(EXIT_FAILURE);
     }
 
-    // printf("Received number of arguments: %d\n", num_args);
-
     // Receive each argument sent by the client
+    // put it in the array
     for (int i = 0; i < *num_args; i++) {
         args[i] = malloc(MAXSIZE * sizeof(char));
         if (recv(client_fd, args[i], MAXSIZE * sizeof(char), 0) < 0) {
             perror("recv failed");
             exit(EXIT_FAILURE);
         }
-        // printf("Received argument %d: %s\n", i + 1, args[i]);
     }
 
 
 }
 
+// function to list the home directories in modified latest time
 void list_dirs_newfirst(int client_fd){
-
+    // creating the ls command
+    // since special characters are not recognised by the execvp
+    // invoking a shell command to execute the ls command
     char *ls_command = "sh";
     char *ls_arguments[] = {"sh", "-c", "ls -1dt ~/\*/", NULL};
 
     char buffer[PIPE_BUFFER] = {0};
-    
+    // creating the pipe 
     int pipe_fd[2];
     if (pipe(pipe_fd) == -1) {
         perror("pipe");
@@ -493,19 +533,21 @@ void list_dirs_newfirst(int client_fd){
     else if (pid == 0) { 
         // Child process
         close(pipe_fd[0]); // Close the read end of the pipe
+        // as we just want to write to it
+        // redirect the output to the pipe
         if (dup2(pipe_fd[1], STDOUT_FILENO) == -1) {
             perror("dup2");
             exit(EXIT_FAILURE);
         }
-        close(pipe_fd[1]); // Close the original write end of the pipe
+        close(pipe_fd[1]); // Close the original write end of the pipe as output will be written
 
-        // Execute ls command
+        // Execute ls command using the 
         if (execvp(ls_command, ls_arguments) == -1) {
             perror("execvp");
             exit(EXIT_FAILURE);
         }
     } else { // Parent process
-        close(pipe_fd[1]); // Close the write end of the pipe
+        close(pipe_fd[1]); // Close the write end of the pipe as we just want to read
         ssize_t bytes_read;
         while ((bytes_read = read(pipe_fd[0], buffer, PIPE_BUFFER)) > 0) {
             if (send(client_fd, buffer, bytes_read, 0) != bytes_read) {
@@ -513,13 +555,16 @@ void list_dirs_newfirst(int client_fd){
                 exit(EXIT_FAILURE);
             }
         }
-        close(pipe_fd[0]); // Close the read end of the pipe
+        close(pipe_fd[0]); // Close the read end of the pipe after sending
         memset(buffer, 0, sizeof(buffer)); // Clear buffer
     }
 
 
 }
 
+// function to send the list of dirs in the home directory 
+// sorted alphabetically using the shell command
+// similar functionality using the pipe as above
 void list_dirs_alphabetically(int client_fd){
 
     char *ls_command = "sh";
@@ -568,6 +613,10 @@ void list_dirs_alphabetically(int client_fd){
 
 }
 
+// this function searches for the file recursively
+// if found then creates the output buffer with details and breaks the recursion
+// and if not then just continues the search
+// handling the not found using the found flag
 void search_file_info(char *filename, char *path, int *found, char *details){
 
     DIR *dir;
@@ -624,6 +673,8 @@ void search_file_info(char *filename, char *path, int *found, char *details){
     closedir(dir);
 }
 
+// function to search for files
+// within the size limits recursively
 void search_files_with_size(char *path, off_t min_size, off_t max_size, char *file_paths[], int *num_files){
     DIR *dir;
     struct dirent *dp;
@@ -656,7 +707,7 @@ void search_files_with_size(char *path, off_t min_size, off_t max_size, char *fi
             // Check if the current entry is a regular file
             if (S_ISREG(st.st_mode))
             {
-                // Check if the file size is within the specified range
+                // Check if the file size is within the specified range and files are in limit
                 if (st.st_size >= min_size && st.st_size <= max_size && *num_files < MAX_FILES)
                 {
                     // Add the file path to the array
@@ -676,6 +727,9 @@ void search_files_with_size(char *path, off_t min_size, off_t max_size, char *fi
     closedir(dir);
 }
 
+//function to search for files with specified extensions
+// list of extensions is passed 
+// each file is checked for each extension that is passed 
 void search_files_with_extensions(char *path, char *extensions[], int num_extensions, char *file_paths[], int *num_files){
     DIR *dir;
     struct dirent *dp;
@@ -736,6 +790,10 @@ void search_files_with_extensions(char *path, char *extensions[], int num_extens
     closedir(dir);
 }
 
+// function to search for files before and after date
+// before after is specified with the help of the flag
+// common function for after and before 
+// recursively finds the files and creates the list of files before or after the date
 void search_files_with_date(const char *path, time_t target_date, char *file_paths[], int *count, const char flag){
     DIR *dir;
     struct dirent *entry;
@@ -789,6 +847,9 @@ void search_files_with_date(const char *path, time_t target_date, char *file_pat
     closedir(dir);
 }
 
+// function to create the tar file using execvp
+// first forks and creates the tar argument array
+// then executes the same while the parent waits
 void create_tar_file(const char *output_file, char *file_paths[], int *num_files){
     pid_t pid;
     int status;
@@ -827,6 +888,8 @@ void create_tar_file(const char *output_file, char *file_paths[], int *num_files
 
 }
 
+// function to zip the tar file 
+// using execvp and parent waits
 void compress_tar_file(const char *tar_file){
     pid_t pid;
     int status;
@@ -855,6 +918,9 @@ void compress_tar_file(const char *tar_file){
     }
 }
 
+// function to send the file to the client
+// opens the file reads it and writes to the socket of client
+// client opens the file in the requried dir at client side and reads from the socket
 void send_file_to_client(int client_fd){
 
     char gz_file_path[PATH_LEN];
