@@ -14,6 +14,8 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <fcntl.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
 #define PORT 4409
 #define BACKLOG 10
@@ -24,14 +26,11 @@
 #define MAX_FILES 20
 #define MAX_EXT 3
 #define FILE_BUFF 1048576
+#define SHM_KEY 4409
 
-// TODO: Function to find files wrt size
-// TODO: Function to find files wrt date
-// TODO: Function to find files wrt extension
-// TODO: Function to create a tar
-// TODO: Function to create a gzip
-// TODO: Function to send file
+int *client_count;
 
+void init_shared_memory();
 void crequest(int client_fd);
 void sigchild_handler(int signo);
 void handle_incoming_strings(char *args[], int client_fd, int *num_args);
@@ -50,6 +49,8 @@ int main()
 
     // registering a signal for sig child sent by children
     // so that processes that exits while running in background gets acknowledged
+    init_shared_memory();
+
     signal(SIGCHLD, sigchild_handler);
     struct sockaddr_in server;
     struct sockaddr_in dest;
@@ -116,6 +117,20 @@ int main()
     return 0;
 }
 
+void init_shared_memory(){
+    int shmid;
+    if ((shmid = shmget(SHM_KEY, sizeof(int), IPC_CREAT | 0666)) < 0)
+    {
+        perror("shmget");
+        exit(1);
+    }
+
+    if ((client_count = shmat(shmid, NULL, 0)) == (int *)-1)
+    {
+        perror("shmat");
+        exit(1);
+    }
+}
 
 
 void crequest(int client_fd){
@@ -901,12 +916,4 @@ void send_file_to_client(int client_fd){
 
     // Close the file
     close(fd);
-
-    // // Send a null character to indicate end of file transmission
-    // char null_char = '\0';
-    // bytes_read = send(client_fd, &null_char, sizeof(null_char), 0);
-    // if (bytes_read < 0) {
-    //     perror("send");
-    //     exit(EXIT_FAILURE);
-    // }
 }

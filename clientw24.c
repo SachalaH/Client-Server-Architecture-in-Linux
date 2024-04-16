@@ -11,14 +11,39 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/stat.h>
+#include <sys/ipc.h>
+#include <sys/shm.h>
 
 
-#define PORT 4409
+// #define PORT 4409
 #define MAXSIZE 1024
 #define ARG_SIZE 5
 #define MAXLEN 128
 #define PIPE_BUFFER 4096
 #define FILE_BUFF 1048576
+#define SERVER_P 4409
+#define SERVER_HOST "delta.cs.uwindsor.ca"
+#define MIRROR1_P 4410
+#define MIRROR1_HOST "delta.cs.uwindsor.ca"
+#define MIRROR2_P 4411
+#define MIRROR2_HOST "delta.cs.uwindsor.ca"
+#define SHM_KEY 4409
+
+int *client_count;
+
+void init_shared_memory() {
+    int shmid;
+    // Try to access the shared memory segment without creating it.
+    if ((shmid = shmget(SHM_KEY, sizeof(int), 0666)) < 0) {
+        perror("Client: shmget failed. Ensure the server or mirror is started first.");
+        exit(1);
+    }
+
+    if ((client_count = shmat(shmid, NULL, 0)) == (int *)-1) {
+        perror("Client: shmat failed");
+        exit(1);
+    }
+}
 
 // TODO: Check date format here
 int parse_ip(char *client_ip, char **args){
@@ -172,24 +197,13 @@ void receive_file_from_server(int socket_fd, const char *output_file) {
 
 }
 
+int connect_to_server(const char *hostname, int port){
 
-// count of files received
-int file_count = 1;
-int main(int argc, char *argv[])
-{
     struct sockaddr_in server_info;
     struct hostent *he;
-    int socket_fd,num;
-    char buffer[1024];
+    int socket_fd;
 
-    char buff[1024];
-
-    if (argc != 2) {
-        fprintf(stderr, "Usage: client hostname\n");
-        exit(1);
-    }
-
-    if ((he = gethostbyname(argv[1]))==NULL) {
+    if ((he = gethostbyname(hostname))==NULL) {
         fprintf(stderr, "Cannot get host name\n");
         exit(1);
     }
@@ -201,7 +215,7 @@ int main(int argc, char *argv[])
 
     memset(&server_info, 0, sizeof(server_info));
     server_info.sin_family = AF_INET;
-    server_info.sin_port = htons(PORT);
+    server_info.sin_port = htons(port);
     server_info.sin_addr = *((struct in_addr *)he->h_addr);
     if (connect(socket_fd, (struct sockaddr *)&server_info, sizeof(struct sockaddr))<0) {
         //fprintf(stderr, "Connection Failure\n");
@@ -209,6 +223,46 @@ int main(int argc, char *argv[])
         exit(1);
     }
 
+    return socket_fd;
+
+}
+
+
+// count of files received
+int file_count = 1;
+int main(int argc, char *argv[]) {
+
+    int socket_fd;
+    char buffer[1024];
+
+    init_shared_memory();
+
+    // Increment the global client count.
+    (*client_count)++;
+    if (*client_count <= 3 || (*client_count > 9 && *client_count % 3 == 1)) {
+        // Try connecting to the server.
+        socket_fd = connect_to_server(SERVER_HOST, SERVER_P);
+        if (socket_fd != -1) {
+            printf("Connected to server %s:%d\n", SERVER_HOST, SERVER_P);
+        }
+    } 
+    else if (*client_count <= 6 || (*client_count > 9 && *client_count % 3 == 2)){
+        socket_fd = connect_to_server(MIRROR1_HOST, MIRROR1_P);
+        if (socket_fd != -1) {
+            printf("Connected to server %s:%d\n", MIRROR1_HOST, MIRROR1_P);
+        }
+
+    }
+    else {
+        // Try connecting to the mirror.
+        socket_fd = connect_to_server(MIRROR2_HOST, MIRROR2_P);
+        if (socket_fd != -1) {
+            printf("Connected to mirror %s:%d\n", MIRROR2_HOST, MIRROR2_P);
+        }
+    }
+
+
+    
     //buffer = "Hello World!! Lets have fun\n";
     while(1) {
         fflush(stdout);
