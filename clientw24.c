@@ -14,8 +14,6 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 
-
-// #define PORT 4409
 #define MAXSIZE 1024
 #define ARG_SIZE 5
 #define MAXLEN 128
@@ -45,7 +43,34 @@ void init_shared_memory() {
     }
 }
 
-// TODO: Check date format here
+int is_valid_date_format(const char *date) {
+    // Check if the length is correct
+    if (strlen(date) != 10) // "yyyy-mm-dd" has 10 characters
+        return 0;
+
+    // Check if the separators are in the correct positions
+    if (date[4] != '-' || date[7] != '-')
+        return 0;
+
+    // Check if year, month, and day are numeric
+    for (int i = 0; i < 10; i++) {
+        if (i == 4 || i == 7)
+            continue; // Skip separators
+        if (date[i] < '0' || date[i] > '9')
+            return 0; // Not a digit
+    }
+
+    // Check if the values are within the valid ranges
+    int year, month, day;
+    if (sscanf(date, "%4d-%2d-%2d", &year, &month, &day) != 3)
+        return 0;
+
+    if (year < 0 || month < 1 || month > 12 || day < 1 || day > 31)
+        return 0;
+
+    return 1; // Valid date format
+}
+
 int parse_ip(char *client_ip, char **args){
     // this function will parse the client ip
     // with respect to a space and return the count of the arguments
@@ -84,10 +109,10 @@ int validate_args(char **args, int arg_count){
     else if(strcmp(args[0],"w24ft")==0 && arg_count>=2 && arg_count<=4){
         return 1;
     }
-    else if(strcmp(args[0],"w24fda")==0 && arg_count==2){
+    else if(strcmp(args[0],"w24fda")==0 && arg_count==2 && is_valid_date_format(args[1])){
         return 1;
     }
-    else if(strcmp(args[0],"w24fdb")==0 && arg_count==2){
+    else if(strcmp(args[0],"w24fdb")==0 && arg_count==2 && is_valid_date_format(args[1])){
         return 1;
     }
     else if(strcmp(args[0],"quitc")==0 && arg_count==1){
